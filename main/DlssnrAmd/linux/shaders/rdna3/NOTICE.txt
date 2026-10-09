@@ -1,0 +1,10 @@
+The RDNA 3 kernels in this folder
+=================================
+
+They are the RDNA 3 (gfx11) port of the network: no FP8 matrix instructions, so the e4m3 values travel as FP16
+through the f16 WMMA.
+
+Port: Copyright (c) 2026 Mauri de Souza Meneguzzo (mauri870) (MIT), https://github.com/mauri870/DLSSNR-RDNA3
+From mochizuki0323's RDNA 4 network (not included here): Copyright (c) 2026 mochizuki0323 (MIT), https://github.com/mochizuki0323/DLSSNR-AMD
+
+See ../../../LICENSE.

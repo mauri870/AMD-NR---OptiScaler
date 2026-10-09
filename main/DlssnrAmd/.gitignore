@@ -1,0 +1,12 @@
+# Downloaded by fetch_deps.sh
+/toolchain
+/artifacts
+# Build output
+/build/
+__pycache__/
+dlssnr-amd.pipelinecache
+# Never commit NVIDIA's files or anything made from them; the runtime is built from this source
+*.dll
+*.bin
+*.spv
+nvngx*

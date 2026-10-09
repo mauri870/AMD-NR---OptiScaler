@@ -1,0 +1,17 @@
+DLSSNR-AMD - attribution
+========================
+
+The original network, its host (linux/src/core) and the shared shader passes (the RDNA 4 kernels of that project are
+not in this repository):
+  Copyright (c) 2026 mochizuki0323 (MIT)
+  https://github.com/mochizuki0323/DLSSNR-AMD
+
+The RDNA 3 port: the kernels in linux/shaders/rdna3 and windows/shaders/rdna3, the host changes that run them
+(FP16 twins for the e4m3 values, the weight packing and the rounding emulation for a GPU without FP8), and the
+dlssnr-amd neural runtime for AMDNR's OptiScaler (DlssnrAmdRuntime.dll: linux/src/pe/nr_amdnr_*, its inline and
+native transports, and the build, test and diagnostic tooling around it):
+  Copyright (c) 2026 Mauri de Souza Meneguzzo (mauri870) (MIT)
+  https://github.com/mauri870/DLSSNR-RDNA3
+
+Both are under the MIT licence in LICENSE, which keeps both copyright lines. Neither contains NVIDIA's model: the
+player extracts it from their own nvngx_dlssnr.dll.
