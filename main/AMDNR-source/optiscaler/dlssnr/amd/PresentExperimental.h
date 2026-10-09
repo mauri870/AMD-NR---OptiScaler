@@ -361,12 +361,14 @@ struct Context
             // (unchosen with both installed = ask): here the user's word is lmxxf first.
             const bool danielChosen =
                 DlssNr::AmdBridge::ChosenRuntime() == DlssNr::AmdBridge::NeuralRuntime::Daniel;
-            lmxxf = DlssNr::AmdBridge::LmxxfReady() && (!danielChosen || !DlssNr::AmdBridge::HasFiles());
+            const bool dlssnrAmd = DlssNr::AmdBridge::DlssnrAmdWanted();
+            lmxxf = dlssnrAmd || (DlssNr::AmdBridge::LmxxfReady() && (!danielChosen || !DlssNr::AmdBridge::HasFiles()));
             if (lmxxf)
-                backend = new Lmxxf::Backend(device.Get(), queue.Get(), directory);
+                backend = new Lmxxf::Backend(device.Get(), queue.Get(), directory,
+                                             dlssnrAmd ? Lmxxf::Flavor::DlssnrAmd : Lmxxf::Flavor::Lmxxf);
             else
                 backend = new AmdPreSr::Backend(device.Get(), queue.Get(), directory);
-            LOG_INFO("DLSS-NR final image mode: {} runtime", lmxxf ? "lmxxf" : "danielblnc");
+            LOG_INFO("DLSS-NR final image mode: {} runtime", dlssnrAmd ? "dlssnr-amd" : lmxxf ? "lmxxf" : "danielblnc");
         }
         // danielblnc's backend loads in its constructor, so not-ready means failed. lmxxf's binds
         // its runtime at the first SUBMISSION of a list its Record has seen (that is how it learns

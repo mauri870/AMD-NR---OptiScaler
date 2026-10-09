@@ -512,7 +512,7 @@ void NrSection(const char* label) { SectionHeader(label); }
 
 bool MenuRuntimeIsLmxxf()
 {
-    return RuntimeCaps::Menu().id == AmdBridge::NeuralRuntime::Lmxxf;
+    return AmdBridge::IsLmxxfFamily(RuntimeCaps::Menu().id);
 }
 
 // ---- T2 helpers ---------------------------------------------------------------------------------------------

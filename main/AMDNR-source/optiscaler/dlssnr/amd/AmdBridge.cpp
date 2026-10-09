@@ -59,7 +59,7 @@ std::ofstream OpenBridgeLog()
     return log;
 }
 std::atomic<AmdPreSr::NeuralBackend*> backend { nullptr };
-std::atomic<int> activeRuntime { 0 }; // NeuralRuntime of the backend that was built: 0 none, 1 daniel, 2 lmxxf
+std::atomic<int> activeRuntime { 0 }; // NeuralRuntime of the backend that was built: 0 none, 1 daniel, 2 lmxxf, 3 dlssnr-amd
 // Set by the RtlExitUserProcess hook (Exit) as its first instruction and never reset (C1-A, 0.3.3.2 rebuild): from then
 // on Run records nothing and the upscaler gets the title's colour. State::isShuttingDown cannot serve: DLL_PROCESS_DETACH,
 // which sets it, runs after this hook.
@@ -391,7 +391,7 @@ void NTAPI Exit(LONG code)
                 const int rt = activeRuntime.load();
                 auto log = OpenBridgeLog();
                 log << GetTickCount64() << " thread=" << GetCurrentThreadId() << " AMD neural: exit - "
-                    << (rt == 2 ? "lmxxf" : rt == 1 ? "danielblnc" : "no runtime") << " " << result << " in "
+                    << (rt == 3 ? "dlssnr-amd" : rt == 2 ? "lmxxf" : rt == 1 ? "danielblnc" : "no runtime") << " " << result << " in "
                     << (GetTickCount64() - t0) << " ms; no NR from here on\n";
             }
         }
@@ -538,6 +538,8 @@ NeuralRuntime ChosenRuntime()
     const auto& v = Config::Instance()->DlssNrBackend.value_or_default();
     if (v == "lmxxf")
         return NeuralRuntime::Lmxxf;
+    if (v == "dlssnr-amd")
+        return NeuralRuntime::DlssnrAmd;
     if (v == "daniel")
         return NeuralRuntime::Daniel;
     return NeuralRuntime::Unchosen;
@@ -559,9 +561,21 @@ bool LmxxfReady()
 {
     return LmxxfAssetsPresent() && LmxxfRuntimePresent();
 }
+bool DlssnrAmdAssetsPresent()
+{
+    return Lmxxf::DlssnrAmdAssetsPresent(Directory());
+}
+bool DlssnrAmdRuntimePresent()
+{
+    return Lmxxf::DlssnrAmdRuntimePresent(Directory());
+}
+bool DlssnrAmdReady()
+{
+    return DlssnrAmdAssetsPresent() && DlssnrAmdRuntimePresent();
+}
 bool AnyRuntimePresent()
 {
-    return HasFiles() || LmxxfReady();
+    return HasFiles() || LmxxfReady() || DlssnrAmdReady();
 }
 // The HIP runtime's version, read the way both runtimes read it (hipInit, then
 // hipRuntimeGetVersion on the driver's amdhip64_7.dll), and hipDriverGetVersion when exported.
@@ -702,12 +716,33 @@ bool LmxxfWanted()
     }
     return true;
 }
+// The DLSSNR-AMD runtime runs only when it is chosen ([DlssNr] NrBackend=dlssnr-amd) and installed completely; it is
+// never the default. Chosen with a piece missing: said once, and the rules above decide what runs instead.
+bool DlssnrAmdWanted()
+{
+    if (ChosenRuntime() != NeuralRuntime::DlssnrAmd)
+        return false;
+    if (DlssnrAmdReady())
+        return true;
+    static bool saidMissing = false;
+    if (!saidMissing)
+    {
+        saidMissing = true;
+        Message(DlssnrAmdRuntimePresent()
+                    ? "AMD neural: NrBackend=dlssnr-amd chosen but dlssnr-amd\\dlssnr.bin or dlssnr-amd\\shaders is missing "
+                      "(beside OptiScaler.dll); running another installed runtime instead"
+                    : "AMD neural: NrBackend=dlssnr-amd chosen but DlssnrAmdRuntime.dll is not beside OptiScaler.dll; "
+                      "running another installed runtime instead");
+    }
+    return false;
+}
 NeuralRuntime ActiveRuntime()
 {
     switch (activeRuntime.load())
     {
     case 1: return NeuralRuntime::Daniel;
     case 2: return NeuralRuntime::Lmxxf;
+    case 3: return NeuralRuntime::DlssnrAmd;
     default: return NeuralRuntime::Unchosen;
     }
 }
@@ -1518,7 +1553,9 @@ static bool Run(ID3D12GraphicsCommandList* cmd, NVSDK_NGX_Parameter* params, ID3
     std::lock_guard frameGuard(frameMutex);
     // Which backend this process runs is decided once, when the first one is built; the
     // menu says "restart the game" for a change made after that.
-    bool lmxxf = backend.load() ? activeRuntime.load() == 2 : LmxxfWanted();
+    // lmxxf: the lmxxf backend class runs (lmxxf's runtime, or DLSSNR-AMD's behind the same ABI); dlssnrAmd: which one.
+    bool dlssnrAmd = backend.load() ? activeRuntime.load() == 3 : DlssnrAmdWanted();
+    bool lmxxf = backend.load() ? activeRuntime.load() >= 2 : (dlssnrAmd || LmxxfWanted());
     if (!backend.load())
     {
         // Informational only (see HipRuntimeVersion): the version never picks the runtime.
@@ -1552,8 +1589,8 @@ static bool Run(ID3D12GraphicsCommandList* cmd, NVSDK_NGX_Parameter* params, ID3
             }
             Message(line.c_str());
         }
-        // Only a HIP that cannot be used at all sends the lmxxf choice elsewhere.
-        if (lmxxf && hipVer == -1)
+        // Only a HIP that cannot be used at all sends the lmxxf choice elsewhere. (The DLSSNR-AMD runtime uses Vulkan.)
+        if (lmxxf && !dlssnrAmd && hipVer == -1)
         {
             static bool saidNoHip = false;
             if (!saidNoHip)
@@ -1755,10 +1792,12 @@ static bool Run(ID3D12GraphicsCommandList* cmd, NVSDK_NGX_Parameter* params, ID3
         }
         if (lmxxf)
         {
-            b = new Lmxxf::Backend(device, q, Directory());
-            activeRuntime.store(2);
-            Message("AMD neural: lmxxf runtime selected (LmxxfNrRuntime.dll + LmxxfNrRuntime.pak); "
-                    "its edit lands one frame late, carried by the motion vectors");
+            b = new Lmxxf::Backend(device, q, Directory(), dlssnrAmd ? Lmxxf::Flavor::DlssnrAmd : Lmxxf::Flavor::Lmxxf);
+            activeRuntime.store(dlssnrAmd ? 3 : 2);
+            Message(dlssnrAmd ? "AMD neural: dlssnr-amd runtime selected (DlssnrAmdRuntime.dll + dlssnr-amd folder); "
+                                "its edit lands one frame late, carried by the motion vectors"
+                              : "AMD neural: lmxxf runtime selected (LmxxfNrRuntime.dll + LmxxfNrRuntime.pak); "
+                                "its edit lands one frame late, carried by the motion vectors");
         }
         else
         {
@@ -1913,7 +1952,7 @@ static bool Run(ID3D12GraphicsCommandList* cmd, NVSDK_NGX_Parameter* params, ID3
         // frames in the settle window run no NR (Run returns before Record): cheaper, so left out of the average
         const bool settling = settlingSince != 0 && t - settlingSince < 300;
         // lmxxf rebuilds leak about 100 MB each unless its runtime reuses its HIP imports (R3); then no cap
-        const bool capChanges = activeRuntime.load() == 2 && Lmxxf::ImportPoolState() != 1;
+        const bool capChanges = activeRuntime.load() >= 2 && Lmxxf::ImportPoolState() != 1;
         std::string dynLog;
         sessionScale = dynamicNr.Update(t, dtMs, settling,
                                         std::clamp(Config::Instance()->AmdDynamicTargetFps.value_or_default(), 30, 240),
@@ -2041,7 +2080,7 @@ static bool Run(ID3D12GraphicsCommandList* cmd, NVSDK_NGX_Parameter* params, ID3
     // lmxxf's own bounded answer wait inside Record is not part of it. Run() holds frameMutex.
     static ULONGLONG lmxxfVkRecordReturned = 0;
     static UINT64 lmxxfVkRecordGaps = 0;
-    const bool lmxxfVkGapCheck = s.vulkanBridge && activeRuntime.load() == 2;
+    const bool lmxxfVkGapCheck = s.vulkanBridge && activeRuntime.load() >= 2;
     if (lmxxfVkGapCheck && lmxxfVkRecordReturned != 0)
     {
         const ULONGLONG gapMs = GetTickCount64() - lmxxfVkRecordReturned;

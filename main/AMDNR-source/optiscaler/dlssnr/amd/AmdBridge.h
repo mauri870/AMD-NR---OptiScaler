@@ -12,13 +12,21 @@ bool HasFiles();
 // The neural runtime the user chose ([DlssNr] NrBackend) and what is installed next to the
 // game. Unchosen + both installed = the menu asks on launch (RuntimeChoiceNeeded); one
 // installed = that one runs.
-enum class NeuralRuntime { Unchosen, Daniel, Lmxxf };
+// DlssnrAmd is the DLSSNR-AMD Vulkan network (DlssnrAmdRuntime.dll + a dlssnr-amd folder): it speaks the lmxxf
+// runtime's C ABI, so the lmxxf backend class hosts it (Lmxxf::Flavor) and the menu treats it as lmxxf-like.
+enum class NeuralRuntime { Unchosen, Daniel, Lmxxf, DlssnrAmd };
+// lmxxf or DlssnrAmd: the runtimes the lmxxf backend class hosts.
+inline bool IsLmxxfFamily(NeuralRuntime r) { return r == NeuralRuntime::Lmxxf || r == NeuralRuntime::DlssnrAmd; }
 NeuralRuntime ChosenRuntime();
 bool LmxxfAssetsPresent();    // DLSS5-AMD\native-game-tiled-assets: weights, HLSL, HIP modules
 bool LmxxfRuntimePresent();   // LmxxfNrRuntime.dll beside OptiScaler.dll (or in DLSS5-AMD\)
 bool LmxxfReady();            // both: the lmxxf backend can be built
 bool AnyRuntimePresent();     // danielblnc's files or the lmxxf pair: the AMD path has something to run
 bool LmxxfWanted();           // the backend to build is lmxxf: chosen, or the only runtime installed
+bool DlssnrAmdAssetsPresent(); // dlssnr-amd/dlssnr.bin and dlssnr-amd/shaders beside OptiScaler.dll
+bool DlssnrAmdRuntimePresent(); // DlssnrAmdRuntime.dll beside OptiScaler.dll
+bool DlssnrAmdReady();        // both: the DLSSNR-AMD backend can be built
+bool DlssnrAmdWanted();       // [DlssNr] NrBackend=dlssnr-amd and it is installed completely
 // hipRuntimeGetVersion of the driver's amdhip64_7.dll after hipInit, cached (working systems answer
 // 70260201); -1 when HIP cannot be used at all (the DLL does not load, hipInit fails, or no version
 // answer), 0 only when the runtime really answers 0. Informational, except that -1 sends the lmxxf

@@ -70,10 +70,13 @@ namespace
 inline bool LegacyMenuRuntimeIsLmxxf()
 {
     const auto active = DlssNr::AmdBridge::ActiveRuntime();
-    return active == DlssNr::AmdBridge::NeuralRuntime::Lmxxf ||
+    // (The DLSSNR-AMD runtime is hosted by the lmxxf backend class and shows lmxxf's rows, so it counts as lmxxf here.)
+    return DlssNr::AmdBridge::IsLmxxfFamily(active) ||
            (active == DlssNr::AmdBridge::NeuralRuntime::Unchosen &&
-            DlssNr::AmdBridge::ChosenRuntime() == DlssNr::AmdBridge::NeuralRuntime::Lmxxf &&
-            DlssNr::AmdBridge::LmxxfReady());
+            ((DlssNr::AmdBridge::ChosenRuntime() == DlssNr::AmdBridge::NeuralRuntime::Lmxxf &&
+              DlssNr::AmdBridge::LmxxfReady()) ||
+             (DlssNr::AmdBridge::ChosenRuntime() == DlssNr::AmdBridge::NeuralRuntime::DlssnrAmd &&
+              DlssNr::AmdBridge::DlssnrAmdReady())));
 }
 
 // Plan T1 check: once a backend is built, RuntimeCaps::Menu() must name lmxxf in exactly the cases the old rule
@@ -94,7 +97,7 @@ void CheckMenuRuntimeRule()
     if (lastPair >= 0 && now - lastCheck < 1000)
         return;
     lastCheck = now;
-    const bool caps = RuntimeCaps::Menu().id == DlssNr::AmdBridge::NeuralRuntime::Lmxxf;
+    const bool caps = DlssNr::AmdBridge::IsLmxxfFamily(RuntimeCaps::Menu().id);
     const bool legacy = LegacyMenuRuntimeIsLmxxf();
     const bool disagree =
         caps != legacy && DlssNr::AmdBridge::ActiveRuntime() != DlssNr::AmdBridge::NeuralRuntime::Unchosen;

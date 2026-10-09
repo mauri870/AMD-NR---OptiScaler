@@ -99,6 +99,8 @@ const char* RuntimeText(NeuralRuntime r)
         return "danielblnc";
     case NeuralRuntime::Lmxxf:
         return "lmxxf";
+    case NeuralRuntime::DlssnrAmd:
+        return "dlssnr-amd";
     default:
         return "none";
     }

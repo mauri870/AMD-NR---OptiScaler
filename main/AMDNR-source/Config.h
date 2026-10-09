@@ -962,7 +962,8 @@ class Config
     // the open-source HIP runtime (DLSS5-AMD\native-game-tiled-assets next to the game). Empty
     // = not chosen yet: the menu opens on the first launch that finds either runtime installed
     // and asks. The lmxxf backend itself lands in 0.3.0; until then a choice of lmxxf is
-    // recorded, and this build runs danielblnc's runtime when that is installed.
+    // recorded, and this build runs danielblnc's runtime when that is installed. "dlssnr-amd" - the DLSSNR-AMD
+    // Vulkan network, DlssnrAmdRuntime.dll + a dlssnr-amd folder - is hosted by the lmxxf backend class.
     CustomOptional<std::string> DlssNrBackend { std::string() };
     // NR style slots (Neural tab > NR style > Custom style slots): the appearance controls
     // captured as "key=value;..." strings, saved with the rest of the ini.

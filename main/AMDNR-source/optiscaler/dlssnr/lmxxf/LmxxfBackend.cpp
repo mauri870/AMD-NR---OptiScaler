@@ -39,6 +39,8 @@ using Microsoft::WRL::ComPtr;
 namespace
 {
 constexpr wchar_t kRuntimeDll[] = L"LmxxfNrRuntime.dll";
+constexpr wchar_t kDlssnrAmdDll[] = L"DlssnrAmdRuntime.dll";
+constexpr wchar_t kDlssnrAmdFolder[] = L"dlssnr-amd";
 // Vulkan bridge, self-healing: live only while a first answer is outstanding - written before
 // PrepareFrame (the HIP warm-up), removed when the first answer is consumed or when an attempt
 // demonstrably failed without hanging. AmdBridge.cpp reads the same name at the next start and
@@ -1005,6 +1007,26 @@ bool AssetsPresent(const std::filesystem::path& directory)
     if (ok) found.store(true);
     return ok;
 }
+// The DLSSNR-AMD runtime (Flavor::DlssnrAmd): its DLL and its folder, both beside OptiScaler.dll.
+std::filesystem::path DlssnrAmdRuntimePath(const std::filesystem::path& directory)
+{
+    return directory / kDlssnrAmdDll;
+}
+std::filesystem::path DlssnrAmdAssetsPath(const std::filesystem::path& directory)
+{
+    return directory / kDlssnrAmdFolder;
+}
+bool DlssnrAmdRuntimePresent(const std::filesystem::path& directory)
+{
+    std::error_code ec;
+    return std::filesystem::exists(DlssnrAmdRuntimePath(directory), ec);
+}
+bool DlssnrAmdAssetsPresent(const std::filesystem::path& directory)
+{
+    std::error_code ec;
+    const auto assets = DlssnrAmdAssetsPath(directory);
+    return std::filesystem::is_regular_file(assets / L"dlssnr.bin", ec) && std::filesystem::is_directory(assets / L"shaders", ec);
+}
 bool FullNetworkRefused() { return fullNetworkRefused.load(); }
 int ImportPoolState() { return importPool.load(); }
 bool ControlsRefused() { return controlsRefused.load(); }
@@ -1018,6 +1040,7 @@ struct Backend::Impl
     ComPtr<ID3D12Device> device;
     ComPtr<ID3D12CommandQueue> queue; // the queue the runtime is bound to (its fence signals go there)
     std::filesystem::path directory;
+    Flavor flavor = Flavor::Lmxxf; // which runtime this backend loads (Flavor in LmxxfBackend.h)
     mutable std::mutex lock;
     std::string status = "lmxxf: waiting for the first frame";
     std::string fatalError; // (0.3.3.2) the error that poisoned the runtime session, once (NoteFatal)
@@ -1824,7 +1847,7 @@ struct Backend::Impl
         fatalError.clear(); // a new session: an earlier stop was the old one's
         if (!dll)
         {
-            const auto path = RuntimePath(directory);
+            const auto path = flavor == Flavor::DlssnrAmd ? DlssnrAmdRuntimePath(directory) : RuntimePath(directory);
             dll = LoadLibraryW(path.c_str());
             if (!dll)
             {
@@ -1859,7 +1882,8 @@ struct Backend::Impl
         LmxxfNrCapabilities caps {};
         caps.struct_size = sizeof caps;
         api.QueryCapabilities(&caps);
-        const auto assetsPath = UsedAssetsPath(directory); // the pak first (P1, 0.3.3.2)
+        const auto assetsPath = flavor == Flavor::DlssnrAmd ? DlssnrAmdAssetsPath(directory)
+                                                            : UsedAssetsPath(directory); // the pak first (P1, 0.3.3.2)
         const std::wstring assets = assetsPath.wstring();
         LmxxfNrCreateInfo ci {};
         ci.struct_size = sizeof ci;
@@ -1887,7 +1911,8 @@ struct Backend::Impl
         // (0.3.4, LF-B) The modules come from the pak whenever the pak is used; the folder names only for loose assets.
         Log("lmxxf runtime up on queue type " + std::to_string(static_cast<UINT>(queue->GetDesc().Type)) + ": " +
             RuntimeStatus() + " (assets " + assetsPath.string() +
-            (assetsPath == PakPath(directory)                                    ? ", modules pak"
+            (flavor == Flavor::DlssnrAmd                                           ? ", Vulkan shaders"
+             : assetsPath == PakPath(directory)                                    ? ", modules pak"
              : std::filesystem::is_directory(directory / L"lmxxf-modules", ec) ? ", modules lmxxf-modules\\"
                                                                                  : ", modules HIP\\") +
             ", network input ceiling " + std::to_string(caps.max_input_width) + "x" + std::to_string(caps.max_input_height) + ")");
@@ -3892,19 +3917,23 @@ ID3D12Resource* Backend::Impl::Record(ID3D12GraphicsCommandList* cmd, const AmdP
     return out;
 }
 
-Backend::Backend(ID3D12Device* d, ID3D12CommandQueue* q, const std::filesystem::path& dir) : p(new Impl)
+Backend::Backend(ID3D12Device* d, ID3D12CommandQueue* q, const std::filesystem::path& dir, Flavor flavor) : p(new Impl)
 {
     p->device = d;
     p->queue = q;
     p->directory = dir;
+    p->flavor = flavor;
     // The assets actually used (the pak first, UsedAssetsPath), not the folder that might be there.
     std::filesystem::path ignored;
-    const auto assets = UsedAssetsPath(dir, &ignored);
+    const bool dlssnrAmd = flavor == Flavor::DlssnrAmd;
+    const auto assets = dlssnrAmd ? DlssnrAmdAssetsPath(dir) : UsedAssetsPath(dir, &ignored);
     std::error_code ec;
-    const char* source = assets == PakPath(dir)                    ? " (pak)"
+    const char* source = dlssnrAmd                                   ? " (folder)"
+                         : assets == PakPath(dir)                    ? " (pak)"
                          : std::filesystem::is_directory(assets, ec) ? " (loose folder)"
                                                                      : " (not found)";
-    p->Log("lmxxf backend created: runtime " + RuntimePath(dir).string() + ", assets " + assets.string() + source);
+    p->Log(std::string(dlssnrAmd ? "dlssnr-amd" : "lmxxf") + " backend created: runtime " +
+           (dlssnrAmd ? DlssnrAmdRuntimePath(dir) : RuntimePath(dir)).string() + ", assets " + assets.string() + source);
     // One WARN per process naming the loose folder the pak won over. (0.3.4, LF-A) Worded per layout (AssetsPath):
     // DLSS5-AMD\native-game-tiled-assets is the lmxxf package layout, left there by an older install, so renaming or
     // deleting it is the advice. A native-game-tiled-assets folder beside the exe is the dlss-5-amd-project layout and

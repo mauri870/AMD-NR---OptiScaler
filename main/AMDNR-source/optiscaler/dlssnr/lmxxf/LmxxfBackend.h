@@ -55,6 +55,20 @@ std::filesystem::path RuntimePath(const std::filesystem::path& directory); // Lm
 std::filesystem::path AssetsPath(const std::filesystem::path& directory);  // the weights folder
 bool RuntimePresent(const std::filesystem::path& directory);
 bool AssetsPresent(const std::filesystem::path& directory);
+// The same backend class can host a second runtime that speaks the same C ABI (LmxxfNrApi.h): the DLSSNR-AMD
+// Vulkan network (DlssnrAmdRuntime.dll, https://github.com/mauri870/DLSSNR-RDNA3 by Mauri de Souza Meneguzzo, MIT,
+// from https://github.com/mochizuki0323/DLSSNR-AMD). Its files are
+// DlssnrAmdRuntime.dll beside OptiScaler.dll and a dlssnr-amd folder beside it holding dlssnr.bin (the model, which
+// the player extracts from their own nvngx_dlssnr.dll) and shaders (SPIR-V). It has no pak and needs no HIP.
+enum class Flavor
+{
+    Lmxxf,
+    DlssnrAmd
+};
+std::filesystem::path DlssnrAmdRuntimePath(const std::filesystem::path& directory); // DlssnrAmdRuntime.dll
+std::filesystem::path DlssnrAmdAssetsPath(const std::filesystem::path& directory);  // the dlssnr-amd folder
+bool DlssnrAmdRuntimePresent(const std::filesystem::path& directory);
+bool DlssnrAmdAssetsPresent(const std::filesystem::path& directory);
 // Full network ([DlssNr] LmxxfFullNetwork): true once the LmxxfNrRuntime.dll in use refused the
 // flag in this process (a runtime older than it; the default network runs instead). Set by the
 // backend on its recording thread, read by the menu for its note; any thread may call it.
@@ -90,7 +104,7 @@ class Backend final : public AmdPreSr::NeuralBackend
     Impl* p;
 
   public:
-    Backend(ID3D12Device*, ID3D12CommandQueue*, const std::filesystem::path& directory);
+    Backend(ID3D12Device*, ID3D12CommandQueue*, const std::filesystem::path& directory, Flavor flavor = Flavor::Lmxxf);
     ~Backend() override;
     ID3D12Resource* Record(ID3D12GraphicsCommandList*, const AmdPreSr::Frame&, const AmdPreSr::Settings&) override;
     AmdPreSr::Stats GetStats() const override;

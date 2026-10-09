@@ -56,7 +56,7 @@ const ImVec4 kCostBelow(0.4f, 0.9f, 0.5f, 1.f); // below it
 
 bool IsLmxxf(const RuntimeCaps::RuntimeInfo& rt)
 {
-    return rt.id == AmdBridge::NeuralRuntime::Lmxxf;
+    return AmdBridge::IsLmxxfFamily(rt.id);
 }
 
 // The cost tag after NR resolution: the mock's tag place (16 px after the label), dim at the cost of 100%, else

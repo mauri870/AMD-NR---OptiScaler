@@ -46,7 +46,7 @@ using RuntimeCaps::Support;
 
 bool MenuIsLmxxf()
 {
-    return RuntimeCaps::Menu().id == AmdBridge::NeuralRuntime::Lmxxf;
+    return AmdBridge::IsLmxxfFamily(RuntimeCaps::Menu().id);
 }
 
 // Shown only while the game really uses Ray Reconstruction: FSR Ray Regeneration stamps every successful denoiser

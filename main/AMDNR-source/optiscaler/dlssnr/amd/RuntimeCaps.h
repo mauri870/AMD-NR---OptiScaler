@@ -239,6 +239,12 @@ inline const char* LmxxfVram()
     // R3: 0 = an older LmxxfNrRuntime.dll (or DLSS5_IMPORT_POOL=0) that re-imports on every rebuild
     return Lmxxf::ImportPoolState() == 0 ? "about 100 MB" : "about 10-25 MB";
 }
+inline const char* DlssnrAmdVram()
+{
+    // The network's arenas and images at the colour's size (about 700 MB at 1080p), plus the frame buffers
+    // it shares with the host; kept for as long as that size lasts.
+    return "about 0.7 GB at 1080p";
+}
 inline bool DanielGpuOk(const AmdBridge::GpuSupport& g)
 {
     return g.danielOk;
@@ -253,6 +259,23 @@ inline std::string DanielMissing()
         return "dlssnr_amd_pass1.dll missing";
     if (!AmdBridge::DanielWeightsPresent())
         return "dlssnr_on_amd_weights.bin missing";
+    return {};
+}
+// The DLSSNR-AMD network needs cooperative matrices: the GPUs lmxxf runs on, without the handheld APUs.
+inline bool DlssnrAmdGpuOk(const AmdBridge::GpuSupport& g)
+{
+    return g.lmxxfOk && !g.lmxxfExperimental;
+}
+inline std::string DlssnrAmdMissing()
+{
+    const bool dll = AmdBridge::DlssnrAmdRuntimePresent();
+    const bool assets = AmdBridge::DlssnrAmdAssetsPresent();
+    if (!dll && !assets)
+        return "DlssnrAmdRuntime.dll and the dlssnr-amd folder missing";
+    if (!dll)
+        return "DlssnrAmdRuntime.dll missing";
+    if (!assets)
+        return "dlssnr-amd/dlssnr.bin or dlssnr-amd/shaders missing";
     return {};
 }
 inline std::string LmxxfMissing()
@@ -273,7 +296,8 @@ inline const char* NoBuildName()
 }
 } // namespace detail
 
-// Both runtimes, in the order the combo and the chooser list them.
+// The runtimes, in the order the combo and the chooser list them. The third speaks lmxxf's runtime ABI and is
+// hosted by the lmxxf backend class, so it has lmxxf's column of the capability matrix.
 inline std::span<const RuntimeInfo> All()
 {
     static const RuntimeInfo rows[] = {
@@ -326,6 +350,31 @@ inline std::span<const RuntimeInfo> All()
             "always on in lmxxf",
             "not in lmxxf",
         },
+        {
+            AmdBridge::NeuralRuntime::DlssnrAmd,
+            "dlssnr-amd",
+            "dlssnr-amd",
+            "DLSSNR-AMD Vulkan network - RDNA 3 kernels by Mauri de Souza Meneguzzo (MIT)",
+            "https://github.com/mauri870/DLSSNR-RDNA3",
+            detail::Column(true),
+            &Config::AmdLmxxfHistory,
+            std::span<const FillItem>(detail::kLmxxfFills),
+            "dlssnr-amd: 100% feeds the network the frame pixel-exact (sharpest); above 100% it feeds an upscaled copy,"
+            " up to 1920x1080.",
+            "dlssnr-amd: scales the model's edit before it is carried.",
+            "dlssnr-amd: how much of the carried edit is kept each frame.",
+            "dlssnr-amd: the network's answer is taken as it is; the tail runs here and the difference is"
+            " lifted to the frame.",
+            &detail::DlssnrAmdVram,
+            0ull,
+            &AmdBridge::DlssnrAmdReady,
+            &detail::DlssnrAmdGpuOk,
+            &detail::DlssnrAmdMissing,
+            &detail::NoBuildName,
+            "not in dlssnr-amd yet",
+            "always on in dlssnr-amd",
+            "not in dlssnr-amd",
+        },
     };
     return rows;
 }
@@ -333,7 +382,7 @@ inline std::span<const RuntimeInfo> All()
 inline const RuntimeInfo& Row(AmdBridge::NeuralRuntime id)
 {
     const auto all = All();
-    return id == AmdBridge::NeuralRuntime::Lmxxf ? all[1] : all[0];
+    return id == AmdBridge::NeuralRuntime::DlssnrAmd ? all[2] : id == AmdBridge::NeuralRuntime::Lmxxf ? all[1] : all[0];
 }
 
 namespace detail
@@ -346,14 +395,23 @@ namespace detail
 // frame.) HipRuntimeVersion() is not asked: its first call loads HIP and runs hipInit on this thread. While
 // nothing is built, LmxxfReady() and HasFiles() check files on every call, so only Menu() and the NR toggle
 // notice (menu_common.cpp, on the key press) call this.
-inline bool MenuIsLmxxfNow()
+inline AmdBridge::NeuralRuntime MenuRuntimeNow()
 {
     const auto active = AmdBridge::ActiveRuntime();
     if (active != AmdBridge::NeuralRuntime::Unchosen)
-        return active == AmdBridge::NeuralRuntime::Lmxxf;
-    return AmdBridge::LmxxfReady() &&
-           (AmdBridge::ChosenRuntime() == AmdBridge::NeuralRuntime::Lmxxf || !AmdBridge::HasFiles()) &&
-           !(State::Instance().api == API::Vulkan && AmdBridge::LmxxfVkLaunchPending());
+        return active;
+    // DLSSNR-AMD is never a default: only when it is chosen and installed completely.
+    if (AmdBridge::ChosenRuntime() == AmdBridge::NeuralRuntime::DlssnrAmd && AmdBridge::DlssnrAmdReady())
+        return AmdBridge::NeuralRuntime::DlssnrAmd;
+    const bool lmxxf = AmdBridge::LmxxfReady() &&
+                       (AmdBridge::ChosenRuntime() == AmdBridge::NeuralRuntime::Lmxxf || !AmdBridge::HasFiles()) &&
+                       !(State::Instance().api == API::Vulkan && AmdBridge::LmxxfVkLaunchPending());
+    return lmxxf ? AmdBridge::NeuralRuntime::Lmxxf : AmdBridge::NeuralRuntime::Daniel;
+}
+// The tab shows lmxxf's rows: lmxxf, or the runtime the lmxxf backend class hosts besides it.
+inline bool MenuIsLmxxfNow()
+{
+    return AmdBridge::IsLmxxfFamily(MenuRuntimeNow());
 }
 } // namespace detail
 
@@ -363,24 +421,24 @@ inline bool MenuIsLmxxfNow()
 // in the menu) it is evaluated on every call.
 inline const RuntimeInfo& Menu()
 {
-    static std::atomic<long long> cached { -1 }; // (ImGui frame << 1) | lmxxf; -1 = not asked yet
-    bool lmxxf;
+    static std::atomic<long long> cached { -1 }; // (ImGui frame << 2) | runtime; -1 = not asked yet
+    AmdBridge::NeuralRuntime runtime;
     if (ImGui::GetCurrentContext() == nullptr)
     {
-        lmxxf = detail::MenuIsLmxxfNow();
+        runtime = detail::MenuRuntimeNow();
     }
     else
     {
         const long long frame = ImGui::GetFrameCount();
         long long c = cached.load(std::memory_order_relaxed);
-        if (c < 0 || (c >> 1) != frame)
+        if (c < 0 || (c >> 2) != frame)
         {
-            c = (frame << 1) | (detail::MenuIsLmxxfNow() ? 1 : 0);
+            c = (frame << 2) | static_cast<long long>(detail::MenuRuntimeNow());
             cached.store(c, std::memory_order_relaxed);
         }
-        lmxxf = (c & 1) != 0;
+        runtime = static_cast<AmdBridge::NeuralRuntime>(c & 3);
     }
-    return Row(lmxxf ? AmdBridge::NeuralRuntime::Lmxxf : AmdBridge::NeuralRuntime::Daniel);
+    return Row(runtime);
 }
 
 inline Support Get(Cap cap)

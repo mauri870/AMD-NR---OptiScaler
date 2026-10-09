@@ -134,6 +134,8 @@ static const char* ToggleNoticeRuntime()
     {
     case NeuralRuntime::Lmxxf:
         return "lmxxf";
+    case NeuralRuntime::DlssnrAmd:
+        return "dlssnr-amd";
     case NeuralRuntime::Daniel:
         return "danielblnc";
     default:
@@ -145,7 +147,7 @@ static const char* ToggleNoticeRuntime()
     if (DlssNr::AmdBridge::ChosenRuntime() == NeuralRuntime::Unchosen && daniel && DlssNr::AmdBridge::LmxxfReady())
         return nullptr;
     if (DlssNr::RuntimeCaps::detail::MenuIsLmxxfNow())
-        return "lmxxf";
+        return DlssNr::RuntimeCaps::detail::MenuRuntimeNow() == NeuralRuntime::DlssnrAmd ? "dlssnr-amd" : "lmxxf";
     return daniel ? "danielblnc" : nullptr;
 }
 
@@ -8119,6 +8121,11 @@ static void RenderNeuralRuntimeChooser(Config* config)
     for (const auto& r : runtimes)
     {
         const bool lmxxf = r.id == DlssNr::AmdBridge::NeuralRuntime::Lmxxf;
+        const bool dlssnrAmd = r.id == DlssNr::AmdBridge::NeuralRuntime::DlssnrAmd;
+        // The third runtime is the last row; it is listed only once some of its files are there, so the
+        // chooser stays two rows for everyone else (the row index is the table index either way).
+        if (dlssnrAmd && !DlssNr::AmdBridge::DlssnrAmdRuntimePresent() && !DlssNr::AmdBridge::DlssnrAmdAssetsPresent())
+            continue;
         const bool complete = r.installed();
         ChooserRow row;
         row.label = std::string(r.name) + " runtime";
@@ -8126,7 +8133,10 @@ static void RenderNeuralRuntimeChooser(Config* config)
         // lmxxf on RDNA 3 runs AMDNR's own backend: its credit stays on the row (0.3.3.2's chooser had it).
         if (lmxxf && lmxxfRdna3)
             row.credit += " - RDNA 3 backend by 3zwr1 (AMDNR)";
-        row.files = lmxxf ? "lmxxf's open-source HIP runtime: LmxxfNrRuntime.dll beside OptiScaler.dll and\n"
+        row.files = dlssnrAmd ? "The DLSSNR-AMD Vulkan network: DlssnrAmdRuntime.dll beside OptiScaler.dll and a\n"
+                                "dlssnr-amd folder beside it (dlssnr.bin, extracted from your own nvngx_dlssnr.dll,\n"
+                                "and shaders). It speaks lmxxf's runtime interface and needs no HIP."
+                    : lmxxf ? "lmxxf's open-source HIP runtime: LmxxfNrRuntime.dll beside OptiScaler.dll and\n"
                             "LmxxfNrRuntime.pak beside it (or DLSS5-AMD\\native-game-tiled-assets next to the game).\n"
                             "Its edit is applied one frame late, carried by the motion vectors,\n"
                             "so the frame never waits for the network."

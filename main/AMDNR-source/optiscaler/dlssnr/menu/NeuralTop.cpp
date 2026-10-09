@@ -329,10 +329,12 @@ struct TopFrame
     // (0.3.4 owner decision 2) Each runtime's version as the player's own files say it (RuntimeVersionOf; danielblnc's
     // credit line shows it), and the combo's "danielblnc 0.4.0" / "lmxxf 0.3.4" (the name alone while the version is
     // unknown or not a plain version number: see PlainVersion). Indexed by IsLmxxf.
-    std::string version[2];
-    std::string label[2];
-    const std::string& Version(NeuralRuntime id) const { return version[id == NeuralRuntime::Lmxxf ? 1 : 0]; }
-    const std::string& Label(NeuralRuntime id) const { return label[id == NeuralRuntime::Lmxxf ? 1 : 0]; }
+    std::string version[3];
+    std::string label[3];
+    // danielblnc 0, lmxxf 1, dlssnr-amd 2
+    static int Slot(NeuralRuntime id) { return id == NeuralRuntime::DlssnrAmd ? 2 : id == NeuralRuntime::Lmxxf ? 1 : 0; }
+    const std::string& Version(NeuralRuntime id) const { return version[Slot(id)]; }
+    const std::string& Label(NeuralRuntime id) const { return label[Slot(id)]; }
 };
 
 // (0.3.4 owner decision 2) The version of the LmxxfNrRuntime.dll the bridge loads (Lmxxf::RuntimePath: beside
@@ -424,7 +426,7 @@ const TopFrame& Evaluate(Config& config)
         nextVersions = t + 1.0;
         for (const auto& r : RuntimeCaps::All())
         {
-            const int i = r.id == NeuralRuntime::Lmxxf ? 1 : 0;
+            const int i = TopFrame::Slot(r.id);
             f.version[i] = RuntimeVersionOf(r);
             f.label[i] = PlainVersion(f.version[i]) ? std::string(r.name) + " " + f.version[i] : std::string(r.name);
         }
@@ -436,6 +438,7 @@ const TopFrame& Evaluate(Config& config)
     // LmxxfWanted() answers the same question but logs, so the menu asks its parts. vkRetried keeps
     // the answer after Retry, since LmxxfVkLaunchPending() caches for about a second. (0.3.3.2's rule.)
     f.vkHeld = State::Instance().api == API::Vulkan && f.active != NeuralRuntime::Lmxxf &&
+               f.active != NeuralRuntime::DlssnrAmd && chosen != NeuralRuntime::DlssnrAmd &&
                DlssNr::AmdBridge::LmxxfReady() &&
                (chosen == NeuralRuntime::Lmxxf || !DlssNr::AmdBridge::HasFiles()) &&
                (ns.vkRetried || DlssNr::AmdBridge::LmxxfVkLaunchPending());
@@ -457,7 +460,7 @@ const TopFrame& Evaluate(Config& config)
     }
     f.stopped = DlssNr::AmdBridge::RuntimeStopped();
     f.refusal = DlssNr::AmdBridge::NrDeviceRefusal();
-    f.lateShare = f.active == NeuralRuntime::Lmxxf    ? Lmxxf::LateSubmitNrShare()
+    f.lateShare = DlssNr::AmdBridge::IsLmxxfFamily(f.active) ? Lmxxf::LateSubmitNrShare()
                   : f.active == NeuralRuntime::Daniel ? AmdPreSr::LateSubmitNrShare()
                                                       : -1.f;
 
@@ -704,6 +707,10 @@ void DrawCreditLine(const TopFrame& f)
         ImGui::PushTextWrapPos(ImGui::GetFontSize() * 40.0f);
         if (r.id == NeuralRuntime::Daniel)
             ImGui::TextUnformatted("Daniel Blanco's DLSS-NR on AMD runtime, shipped unmodified with his permission.");
+        else if (r.id == NeuralRuntime::DlssnrAmd)
+            ImGui::TextUnformatted("The DLSSNR-AMD Vulkan network, MIT licence: the RDNA 3 kernels and this runtime"
+                                   " by Mauri de Souza Meneguzzo (mauri870), the original network by"
+                                   " mochizuki0323. It speaks lmxxf's runtime interface and needs no HIP.");
         else
             ImGui::TextUnformatted("Kien's open-source HIP runtime, MIT licence.");
         ImGui::TextDisabled("Click to open %s", WithoutScheme(r.url));
@@ -731,6 +738,9 @@ void DrawCreditLine(const TopFrame& f)
         }
         return;
     }
+    // The DLSSNR-AMD network is neither lmxxf's runtime nor AMDNR's backend for it: no AMDNR suffix.
+    if (r.id == NeuralRuntime::DlssnrAmd)
+        return;
     if (g.lmxxfOk && g.target.rfind("gfx11", 0) == 0)
     {
         // lmxxf on RDNA 3 is AMDNR's own backend: say whose, wherever it runs (0.3.3.2's GPU line, M:323-325). On a
@@ -999,7 +1009,7 @@ void DrawLiveTree(const TopFrame& f)
     {
         const int pct = static_cast<int>(std::lround(f.lateShare * 100.f));
         std::snprintf(buf, sizeof buf, "Late submission: %s ran on %d%% of the last ~600 frames",
-                      f.active == NeuralRuntime::Lmxxf ? "the model" : "NR", pct);
+                      DlssNr::AmdBridge::IsLmxxfFamily(f.active) ? "the model" : "NR", pct);
         StatusLine(buf, "The game hands some frames' work to the GPU only after the next frame has started. lmxxf keeps"
                         " such a job one frame ([DlssNr] AmdLateSubmitGrace); danielblnc's runtime skips those frames."
                         " Shown while the last window of about 600 frames had a late frame.");
@@ -1282,7 +1292,7 @@ void DrawAttention(const Ctx& ctx)
     {
         const int pct = static_cast<int>(std::lround(f.lateShare * 100.f));
         char buf[96];
-        if (f.active == NeuralRuntime::Lmxxf)
+        if (DlssNr::AmdBridge::IsLmxxfFamily(f.active))
         {
             std::snprintf(buf, sizeof buf, "This game submits frames late: the model ran on %d%% of frames", pct);
             lateHover = "The game hands each frame's work to the GPU only after the next frame has started. lmxxf keeps"
